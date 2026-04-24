@@ -1,0 +1,79 @@
+# Environments
+.env
+.env.local
+.env.*.local
+!.env.example
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.installed.cfg
+*.egg
+
+# Poetry
+poetry.lock.bak
+
+# Testing / linting
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.nox/
+
+# Jupyter
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data / artifacts (never commit raw data or models)
+data/raw/
+data/cache/
+*.pkl
+*.joblib
+*.parquet
+models/*.pkl
+!models/.gitkeep
+
+# Logs
+*.log
+logs/*
+!logs/.gitkeep
+
+# Docker / infra
+postgres_data/
+redis_data/
+grafana_data/
+langfuse_data/
+
+# Telethon session
+*.session
+*.session-journal
+
+# Secrets
+secrets/
+*.pem
+*.key
