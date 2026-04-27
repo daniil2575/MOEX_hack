@@ -23,6 +23,6 @@ __all__ = [
     "RiskLimits",
     "RiskVerdict",
     "Severity",
-    "TradingStatus",
     "TraderDecision",
+    "TradingStatus",
 ]
