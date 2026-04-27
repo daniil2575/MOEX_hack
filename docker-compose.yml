@@ -15,7 +15,9 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./scripts/postgres-init.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
     ports:
-      - "5432:5432"
+      # Host-side 5433 to avoid conflicts with another local postgres on 5432.
+      # In-network containers still talk to postgres:5432.
+      - "5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bot} -d ${POSTGRES_DB:-bot}"]
       interval: 5s
@@ -30,7 +32,8 @@ services:
     volumes:
       - redis_data:/data
     ports:
-      - "6379:6379"
+      # Host-side 6380 to avoid clashes with any other local redis.
+      - "6380:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
