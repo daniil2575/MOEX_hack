@@ -1,0 +1,20 @@
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+  external_labels:
+    project: moex-bot
+    env: dev
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # App will expose /metrics on :8000 once the FastAPI/Starlette layer lands
+  # (Day 13 — LangGraph wiring). Until then this scrape will fail, which is
+  # fine: prometheus retries silently and grafana shows the gap.
+  - job_name: moex-bot
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["app:8000"]

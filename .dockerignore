@@ -1,0 +1,49 @@
+.git
+.gitignore
+.github
+
+# Local env / virtualenvs
+.env
+.env.*
+!.env.example
+.venv
+venv
+env
+
+# Python caches
+__pycache__
+*.py[cod]
+*$py.class
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+.coverage.*
+htmlcov
+coverage.xml
+
+# IDE / OS
+.idea
+.vscode
+*.swp
+*.swo
+.DS_Store
+
+# Build artifacts
+build
+dist
+*.egg-info
+
+# Notebooks / docs / logs
+notebooks
+docs
+logs
+
+# Data / models / sessions
+data
+models/*.pkl
+*.session
+*.session-journal
+
+# Tests aren't needed in runtime image
+tests
