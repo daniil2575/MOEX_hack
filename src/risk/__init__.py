@@ -11,8 +11,11 @@ from src.risk.rules import (
     WhitelistRule,
     default_rules,
 )
+from src.risk.sectors import SECTOR_MAP, TRADING_WHITELIST, sector_of
 
 __all__ = [
+    "SECTOR_MAP",
+    "TRADING_WHITELIST",
     "DrawdownKillSwitchRule",
     "GrossExposureRule",
     "LiquidityRule",
@@ -24,4 +27,5 @@ __all__ = [
     "VaRRule",
     "WhitelistRule",
     "default_rules",
+    "sector_of",
 ]

@@ -14,12 +14,10 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
+from pydantic import ValidationError
 
 from src.contracts import (
-    MarketState,
-    Portfolio,
     Position,
-    RiskLimits,
     RiskVerdict,
 )
 from src.risk import (
@@ -34,7 +32,6 @@ from src.risk import (
     WhitelistRule,
     default_rules,
 )
-
 
 # ────────────────────────────── WhitelistRule ──────────────────────────────
 
@@ -59,17 +56,17 @@ class TestWhitelistRule:
 
 
 class TestTradingStatusRule:
-    def test_T_allows_market(self, market_factory, empty_portfolio, buy_order_factory):
+    def test_status_t_allows_market(self, market_factory, empty_portfolio, buy_order_factory):
         order = buy_order_factory(ticker="SBER", urgency="MARKET")
         verdict = TradingStatusRule().check(order, empty_portfolio, market_factory())
         assert verdict.approved is True
 
-    def test_T_allows_limit(self, market_factory, empty_portfolio, buy_order_factory):
+    def test_status_t_allows_limit(self, market_factory, empty_portfolio, buy_order_factory):
         order = buy_order_factory(ticker="SBER", urgency="LIMIT")
         verdict = TradingStatusRule().check(order, empty_portfolio, market_factory())
         assert verdict.approved is True
 
-    def test_DA_rejects_market(self, market_factory, empty_portfolio, buy_order_factory):
+    def test_status_da_rejects_market(self, market_factory, empty_portfolio, buy_order_factory):
         order = buy_order_factory(ticker="SBER", urgency="MARKET")
         market = market_factory({"SBER": "DA"})
         verdict = TradingStatusRule().check(order, empty_portfolio, market)
@@ -77,13 +74,13 @@ class TestTradingStatusRule:
         assert verdict.severity == "BLOCK"
         assert "DA" in verdict.reason
 
-    def test_DA_allows_limit(self, market_factory, empty_portfolio, buy_order_factory):
+    def test_status_da_allows_limit(self, market_factory, empty_portfolio, buy_order_factory):
         order = buy_order_factory(ticker="SBER", urgency="LIMIT")
         market = market_factory({"SBER": "DA"})
         verdict = TradingStatusRule().check(order, empty_portfolio, market)
         assert verdict.approved is True
 
-    def test_H_rejects_all(self, market_factory, empty_portfolio, buy_order_factory):
+    def test_status_h_rejects_all(self, market_factory, empty_portfolio, buy_order_factory):
         for urgency in ("MARKET", "LIMIT"):
             order = buy_order_factory(ticker="SBER", urgency=urgency)
             market = market_factory({"SBER": "H"})
@@ -91,7 +88,7 @@ class TestTradingStatusRule:
             assert verdict.approved is False, f"H should reject urgency={urgency}"
             assert verdict.severity == "BLOCK"
 
-    def test_U_rejects_all(self, market_factory, empty_portfolio, buy_order_factory):
+    def test_status_u_rejects_all(self, market_factory, empty_portfolio, buy_order_factory):
         for urgency in ("MARKET", "LIMIT"):
             order = buy_order_factory(ticker="SBER", urgency=urgency)
             market = market_factory({"SBER": "U"})
@@ -359,7 +356,7 @@ class TestVaRRule:
         buy_order_factory,
         returns_with_tail,
     ):
-        # 5% position × 20% tail loss → contributes 1% VaR (< 2% cap)
+        # 5% position *20% tail loss → contributes 1% VaR (< 2% cap)
         market = market_factory(
             returns_overrides={"SBER": returns_with_tail(Decimal("-0.20"))}
         )
@@ -375,7 +372,7 @@ class TestVaRRule:
         buy_order_factory,
         returns_with_tail,
     ):
-        # 5% position × 40% tail loss → contributes 2% VaR (= 2% cap)
+        # 5% position *40% tail loss → contributes 2% VaR (= 2% cap)
         market = market_factory(
             returns_overrides={"SBER": returns_with_tail(Decimal("-0.40"))}
         )
@@ -391,7 +388,7 @@ class TestVaRRule:
         buy_order_factory,
         returns_with_tail,
     ):
-        # 5% position × 50% tail loss → contributes 2.5% VaR (> 2% cap)
+        # 5% position *50% tail loss → contributes 2.5% VaR (> 2% cap)
         market = market_factory(
             returns_overrides={"SBER": returns_with_tail(Decimal("-0.50"))}
         )
@@ -524,11 +521,11 @@ class TestRiskManagerIntegration:
 class TestRiskVerdictModel:
     def test_verdict_is_immutable(self):
         v = RiskVerdict(approved=True, rule="X", reason="ok", severity="INFO")
-        with pytest.raises(Exception):  # Pydantic ValidationError on frozen
+        with pytest.raises(ValidationError):
             v.approved = False  # type: ignore[misc]
 
     def test_verdict_rejects_unknown_severity(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             RiskVerdict(
                 approved=False,
                 rule="X",

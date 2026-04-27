@@ -68,7 +68,7 @@ def stress_test_portfolio(
     """Project portfolio P&L (% NAV) under a historical scenario.
 
     Returns the cumulative P&L over the scenario window, computed as the
-    weighted sum of per-ticker compounded returns × position weight.
+    weighted sum of per-ticker compounded returns times position weight.
 
     Raises:
         NotImplementedError: green-phase work — see Day 6 of solo_plan.md.

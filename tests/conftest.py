@@ -53,11 +53,11 @@ def _market(
     returns_overrides: dict[str, list[Decimal]] | None = None,
     returns_missing: set[str] | None = None,
 ) -> MarketState:
-    statuses: dict[str, TradingStatus] = {t: "T" for t in whitelist}
+    statuses: dict[str, TradingStatus] = dict.fromkeys(whitelist, "T")
     if status_overrides:
         statuses.update(status_overrides)
 
-    adv: dict[str, Decimal] = {t: DEFAULT_ADV for t in whitelist}
+    adv: dict[str, Decimal] = dict.fromkeys(whitelist, DEFAULT_ADV)
     if adv_overrides:
         adv.update(adv_overrides)
     if adv_missing:
