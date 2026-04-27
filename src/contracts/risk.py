@@ -52,13 +52,20 @@ class Portfolio(BaseModel):
 
 
 class MarketState(BaseModel):
-    """Slice of market data used by Risk Manager."""
+    """Slice of market data used by Risk Manager.
+
+    `adv`: average daily volume in RUB per ticker (20-day window) — feeds LiquidityRule.
+    `returns_252d`: trailing 252 daily returns per ticker — feeds VaRRule.
+    Missing key in `adv` or `returns_252d` is treated as «no data» → reject.
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=True)
 
     trading_status: dict[str, TradingStatus]
     sector_map: dict[str, str]
     whitelist: frozenset[str]
+    adv: dict[str, Decimal] = Field(default_factory=dict)
+    returns_252d: dict[str, list[Decimal]] = Field(default_factory=dict)
 
 
 class RiskLimits(BaseModel):
@@ -71,6 +78,9 @@ class RiskLimits(BaseModel):
     max_gross_pct_nav: Decimal = Decimal("1.00")
     dd_warning_pct: Decimal = Decimal("-0.03")
     dd_halt_pct: Decimal = Decimal("-0.05")
+    max_order_pct_adv: Decimal = Decimal("0.05")
+    max_var_pct_nav: Decimal = Decimal("0.02")
+    var_alpha: Decimal = Decimal("0.05")
 
 
 class RiskVerdict(BaseModel):

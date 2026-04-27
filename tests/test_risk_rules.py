@@ -2,9 +2,11 @@
 
 Stubs in `src/risk/rules.py` currently return APPROVE for all inputs, so every
 test below that asserts a *rejection* will fail. This is intentional and gates
-Day 5 (zelёные tests + sectors.py) per `sprints/sprint_1_prep/solo_plan.md`.
+the green-phase implementation per `sprints/sprint_1_prep/solo_plan.md`.
 
-Coverage: 24 tests across 6 rules + 3 RiskManager integration tests.
+Coverage: 8 rules (Whitelist, TradingStatus, PositionSize, Liquidity,
+SectorExposure, GrossExposure, DrawdownKillSwitch, VaR) + RiskManager
+integration + RiskVerdict semantics.
 """
 
 from __future__ import annotations
@@ -23,10 +25,12 @@ from src.contracts import (
 from src.risk import (
     DrawdownKillSwitchRule,
     GrossExposureRule,
+    LiquidityRule,
     PositionSizeRule,
     RiskManager,
     SectorExposureRule,
     TradingStatusRule,
+    VaRRule,
     WhitelistRule,
     default_rules,
 )
@@ -122,6 +126,56 @@ class TestPositionSizeRule:
         assert verdict.approved is False
         assert verdict.severity == "BLOCK"
         assert "5" in verdict.reason or "0.05" in verdict.reason
+
+
+# ────────────────────────────── LiquidityRule ──────────────────────────────
+
+
+class TestLiquidityRule:
+    """order_value / ADV ≤ max_order_pct_adv (default 5%).
+
+    NAV=1_000_000, default ADV=1_000_000_000 → 5% of ADV = 50_000_000 ₽.
+    A 5% NAV order = 50_000 ₽ → 0.005% of ADV → trivially under cap.
+    To stress the rule we shrink ADV per ticker.
+    """
+
+    def test_within_limit_approved(
+        self, limits, market_factory, empty_portfolio, buy_order_factory
+    ):
+        # 2% NAV = 20_000 ₽; ADV=1_000_000 → 2% of ADV (≤5%)
+        market = market_factory(adv_overrides={"SBER": Decimal("1000000")})
+        order = buy_order_factory(ticker="SBER", qty_pct_nav=Decimal("0.02"))
+        verdict = LiquidityRule(limits).check(order, empty_portfolio, market)
+        assert verdict.approved is True
+
+    def test_at_limit_approved(
+        self, limits, market_factory, empty_portfolio, buy_order_factory
+    ):
+        # 5% NAV = 50_000 ₽; ADV=1_000_000 → exactly 5% of ADV
+        market = market_factory(adv_overrides={"SBER": Decimal("1000000")})
+        order = buy_order_factory(ticker="SBER", qty_pct_nav=Decimal("0.05"))
+        verdict = LiquidityRule(limits).check(order, empty_portfolio, market)
+        assert verdict.approved is True
+
+    def test_over_limit_rejected(
+        self, limits, market_factory, empty_portfolio, buy_order_factory
+    ):
+        # 5% NAV = 50_000 ₽; ADV=500_000 → 10% of ADV > 5% cap
+        market = market_factory(adv_overrides={"SBER": Decimal("500000")})
+        order = buy_order_factory(ticker="SBER", qty_pct_nav=Decimal("0.05"))
+        verdict = LiquidityRule(limits).check(order, empty_portfolio, market)
+        assert verdict.approved is False
+        assert verdict.severity == "BLOCK"
+        assert "adv" in verdict.reason.lower() or "liquidity" in verdict.reason.lower()
+
+    def test_missing_adv_rejected(
+        self, limits, market_factory, empty_portfolio, buy_order_factory
+    ):
+        market = market_factory(adv_missing={"SBER"})
+        order = buy_order_factory(ticker="SBER", qty_pct_nav=Decimal("0.02"))
+        verdict = LiquidityRule(limits).check(order, empty_portfolio, market)
+        assert verdict.approved is False, "missing ADV → cannot price slippage → reject"
+        assert verdict.severity == "BLOCK"
 
 
 # ────────────────────────────── SectorExposureRule ──────────────────────────────
@@ -286,6 +340,107 @@ class TestDrawdownKillSwitchRule:
         assert verdict.severity == "HALT"
 
 
+# ────────────────────────────── VaRRule ──────────────────────────────
+
+
+class TestVaRRule:
+    """Historical 1-day 95% VaR on the simulated post-trade portfolio.
+
+    With `returns_with_tail(tail_loss)`, historical 95% VaR for a single
+    fully-allocated ticker equals |tail_loss|. We size the position so the
+    weighted post-trade VaR straddles `max_var_pct_nav` (default 2%).
+    """
+
+    def test_under_limit_approved(
+        self,
+        limits,
+        market_factory,
+        empty_portfolio,
+        buy_order_factory,
+        returns_with_tail,
+    ):
+        # 5% position × 20% tail loss → contributes 1% VaR (< 2% cap)
+        market = market_factory(
+            returns_overrides={"SBER": returns_with_tail(Decimal("-0.20"))}
+        )
+        order = buy_order_factory(ticker="SBER", qty_pct_nav=Decimal("0.05"))
+        verdict = VaRRule(limits).check(order, empty_portfolio, market)
+        assert verdict.approved is True
+
+    def test_at_limit_approved(
+        self,
+        limits,
+        market_factory,
+        empty_portfolio,
+        buy_order_factory,
+        returns_with_tail,
+    ):
+        # 5% position × 40% tail loss → contributes 2% VaR (= 2% cap)
+        market = market_factory(
+            returns_overrides={"SBER": returns_with_tail(Decimal("-0.40"))}
+        )
+        order = buy_order_factory(ticker="SBER", qty_pct_nav=Decimal("0.05"))
+        verdict = VaRRule(limits).check(order, empty_portfolio, market)
+        assert verdict.approved is True
+
+    def test_over_limit_rejected(
+        self,
+        limits,
+        market_factory,
+        empty_portfolio,
+        buy_order_factory,
+        returns_with_tail,
+    ):
+        # 5% position × 50% tail loss → contributes 2.5% VaR (> 2% cap)
+        market = market_factory(
+            returns_overrides={"SBER": returns_with_tail(Decimal("-0.50"))}
+        )
+        order = buy_order_factory(ticker="SBER", qty_pct_nav=Decimal("0.05"))
+        verdict = VaRRule(limits).check(order, empty_portfolio, market)
+        assert verdict.approved is False
+        assert verdict.severity == "BLOCK"
+        assert "var" in verdict.reason.lower()
+
+    def test_missing_returns_rejected(
+        self, limits, market_factory, empty_portfolio, buy_order_factory
+    ):
+        market = market_factory(returns_missing={"SBER"})
+        order = buy_order_factory(ticker="SBER", qty_pct_nav=Decimal("0.02"))
+        verdict = VaRRule(limits).check(order, empty_portfolio, market)
+        assert verdict.approved is False, "missing returns → cannot estimate VaR → reject"
+        assert verdict.severity == "BLOCK"
+
+    def test_post_trade_simulation_includes_new_order(
+        self,
+        limits,
+        market_factory,
+        portfolio_factory,
+        buy_order_factory,
+        returns_with_tail,
+    ):
+        """VaR is measured on PRE+POST composition, not the existing portfolio alone.
+
+        Existing portfolio has zero-vol exposure (no VaR). The new order
+        targets a high-tail-loss ticker; if the rule used the pre-trade
+        portfolio it would approve. It must reject.
+        """
+        existing = [
+            Position(
+                ticker="MOEX",  # zero-vol from default returns
+                qty=Decimal("1000"),
+                avg_price=Decimal("100"),
+                market_value=Decimal("100000"),
+            )
+        ]
+        portfolio = portfolio_factory(positions=existing, cash=Decimal("900000"))
+        market = market_factory(
+            returns_overrides={"GAZP": returns_with_tail(Decimal("-0.50"))}
+        )
+        order = buy_order_factory(ticker="GAZP", qty_pct_nav=Decimal("0.05"))
+        verdict = VaRRule(limits).check(order, portfolio, market)
+        assert verdict.approved is False, "post-trade VaR must include the new order"
+
+
 # ────────────────────────────── RiskManager integration ──────────────────────────────
 
 
@@ -313,7 +468,7 @@ class TestRiskManagerIntegration:
     def test_short_circuits_on_first_block(
         self, limits, market_all_trading, portfolio_factory, buy_order_factory
     ):
-        # Position-size violation must fire before sector check (rule #3 < rule #4)
+        # Position-size (#3) must fire before Sector (#5)
         portfolio = portfolio_factory(
             sector_exposures={"Banking": Decimal("0.50")}  # already over sector cap
         )
@@ -322,7 +477,44 @@ class TestRiskManagerIntegration:
         verdict = manager.evaluate(order, portfolio, market_all_trading)
         assert verdict.approved is False
         assert verdict.rule == "PositionSizeRule", (
-            f"PositionSize (rule #3) must fire before Sector (rule #4); got {verdict.rule}"
+            f"PositionSize (rule #3) must fire before Sector (rule #5); got {verdict.rule}"
+        )
+
+    def test_liquidity_fires_before_sector(
+        self, limits, market_factory, portfolio_factory, buy_order_factory
+    ):
+        # Liquidity (#4) must fire before Sector (#5)
+        portfolio = portfolio_factory(
+            sector_exposures={"Banking": Decimal("0.50")}  # already over sector cap
+        )
+        # 5% NAV = 50_000 ₽; ADV=100_000 → 50% of ADV ≫ 5% cap
+        market = market_factory(adv_overrides={"SBER": Decimal("100000")})
+        order = buy_order_factory(ticker="SBER", qty_pct_nav=Decimal("0.05"))
+        manager = RiskManager(default_rules(limits))
+        verdict = manager.evaluate(order, portfolio, market)
+        assert verdict.approved is False
+        assert verdict.rule == "LiquidityRule", (
+            f"Liquidity (rule #4) must fire before Sector (rule #5); got {verdict.rule}"
+        )
+
+    def test_var_runs_last(
+        self,
+        limits,
+        market_factory,
+        empty_portfolio,
+        buy_order_factory,
+        returns_with_tail,
+    ):
+        # All cheap rules pass; only VaR rejects → confirms VaR is reachable as #8.
+        market = market_factory(
+            returns_overrides={"SBER": returns_with_tail(Decimal("-0.50"))}
+        )
+        order = buy_order_factory(ticker="SBER", qty_pct_nav=Decimal("0.05"))
+        manager = RiskManager(default_rules(limits))
+        verdict = manager.evaluate(order, empty_portfolio, market)
+        assert verdict.approved is False
+        assert verdict.rule == "VaRRule", (
+            f"VaR (rule #8) is the only block here; got {verdict.rule}"
         )
 
 

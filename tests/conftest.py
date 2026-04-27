@@ -40,15 +40,44 @@ def sector_map() -> dict[str, str]:
     }
 
 
+DEFAULT_ADV: Decimal = Decimal("1000000000")  # 1B RUB — generous, all liquidity tests pass by default
+DEFAULT_RETURNS_252D: list[Decimal] = [Decimal("0")] * 252  # zero-vol → zero VaR
+
+
 def _market(
     whitelist: frozenset[str],
     sector_map: dict[str, str],
-    overrides: dict[str, TradingStatus] | None = None,
+    status_overrides: dict[str, TradingStatus] | None = None,
+    adv_overrides: dict[str, Decimal] | None = None,
+    adv_missing: set[str] | None = None,
+    returns_overrides: dict[str, list[Decimal]] | None = None,
+    returns_missing: set[str] | None = None,
 ) -> MarketState:
     statuses: dict[str, TradingStatus] = {t: "T" for t in whitelist}
-    if overrides:
-        statuses.update(overrides)
-    return MarketState(trading_status=statuses, sector_map=sector_map, whitelist=whitelist)
+    if status_overrides:
+        statuses.update(status_overrides)
+
+    adv: dict[str, Decimal] = {t: DEFAULT_ADV for t in whitelist}
+    if adv_overrides:
+        adv.update(adv_overrides)
+    if adv_missing:
+        for t in adv_missing:
+            adv.pop(t, None)
+
+    returns: dict[str, list[Decimal]] = {t: list(DEFAULT_RETURNS_252D) for t in whitelist}
+    if returns_overrides:
+        returns.update(returns_overrides)
+    if returns_missing:
+        for t in returns_missing:
+            returns.pop(t, None)
+
+    return MarketState(
+        trading_status=statuses,
+        sector_map=sector_map,
+        whitelist=whitelist,
+        adv=adv,
+        returns_252d=returns,
+    )
 
 
 @pytest.fixture
@@ -58,8 +87,39 @@ def market_all_trading(whitelist: frozenset[str], sector_map: dict[str, str]) ->
 
 @pytest.fixture
 def market_factory(whitelist: frozenset[str], sector_map: dict[str, str]):
-    def _factory(overrides: dict[str, TradingStatus] | None = None) -> MarketState:
-        return _market(whitelist, sector_map, overrides)
+    def _factory(
+        status_overrides: dict[str, TradingStatus] | None = None,
+        *,
+        adv_overrides: dict[str, Decimal] | None = None,
+        adv_missing: set[str] | None = None,
+        returns_overrides: dict[str, list[Decimal]] | None = None,
+        returns_missing: set[str] | None = None,
+    ) -> MarketState:
+        return _market(
+            whitelist,
+            sector_map,
+            status_overrides,
+            adv_overrides,
+            adv_missing,
+            returns_overrides,
+            returns_missing,
+        )
+
+    return _factory
+
+
+@pytest.fixture
+def returns_with_tail():
+    """Generate 252 daily returns with a controlled left tail (for VaR testing).
+
+    Produces returns where the worst 5% (~13 worst days) are at `tail_loss`,
+    rest are zero. Historical 1-day 95% VaR = `abs(tail_loss)`.
+    """
+
+    def _factory(tail_loss: Decimal) -> list[Decimal]:
+        n_tail = 13  # ~5% of 252
+        returns = [tail_loss] * n_tail + [Decimal("0")] * (252 - n_tail)
+        return returns
 
     return _factory
 
