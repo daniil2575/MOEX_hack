@@ -88,7 +88,7 @@ class OpenRouterAdapter(LLMProvider):
         ):
             with attempt:
                 try:
-                    return await self._client.chat.completions.create(
+                    result: T = await self._client.chat.completions.create(
                         model=self._model,
                         messages=[{"role": "user", "content": prompt}],
                         response_model=response_model,
@@ -96,6 +96,7 @@ class OpenRouterAdapter(LLMProvider):
                         temperature=temperature,
                         max_tokens=max_tokens,
                     )
+                    return result
                 except _RETRYABLE_ERRORS:
                     raise
                 except APIError as e:
