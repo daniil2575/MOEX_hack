@@ -19,6 +19,7 @@ alembic = "^1.13"
 asyncpg = "^0.29"
 pandas = "^2.2"
 numpy = "^1.26"
+telethon = "^1.36"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.4"
@@ -44,6 +45,10 @@ strict = true
 warn_unreachable = true
 warn_unused_ignores = true
 disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["telethon", "telethon.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
