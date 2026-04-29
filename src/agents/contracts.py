@@ -21,6 +21,8 @@ from pydantic import BaseModel, ConfigDict, Field
 Regime = Literal["bullish", "bearish", "neutral"]
 Sentiment = Literal["positive", "negative", "neutral"]
 Impact = Literal["high", "medium", "low"]
+Recommendation = Literal["BUY", "SELL", "HOLD", "AVOID"]
+FundamentalRating = Literal["strong_buy", "buy", "hold", "sell", "strong_sell"]
 
 
 class _OpinionBase(BaseModel):
@@ -58,3 +60,52 @@ class NewsOpinion(_OpinionBase):
     urgency: Impact
     ticker_sentiments: list[TickerSentiment] = Field(default_factory=list, max_length=20)
     key_themes: list[str] = Field(default_factory=list, max_length=10)
+
+
+class FundamentalSnapshot(BaseModel):
+    """Per-ticker fundamentals snapshot — input to `FundamentalAnalyst`.
+
+    Sourced from ISS aggregates / Algopack on the data layer; the agent
+    only consumes the snapshot and never re-fetches.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    ticker: str = Field(..., min_length=1, max_length=12, pattern=r"^[A-Z0-9]+$")
+    as_of: datetime
+    pe_ratio: Decimal | None = None
+    pb_ratio: Decimal | None = None
+    dividend_yield_pct: Decimal | None = Field(default=None, ge=Decimal("0"))
+    roe_pct: Decimal | None = None
+    debt_to_equity: Decimal | None = Field(default=None, ge=Decimal("0"))
+    revenue_growth_yoy_pct: Decimal | None = None
+    sector_pe_median: Decimal | None = None
+
+
+class FundamentalOpinion(_OpinionBase):
+    """Output of `FundamentalAnalyst.analyze(snapshot)`."""
+
+    ticker: str = Field(..., min_length=1, max_length=12, pattern=r"^[A-Z0-9]+$")
+    rating: FundamentalRating
+    fair_value: Decimal | None = Field(default=None, gt=Decimal("0"))
+    key_strengths: list[str] = Field(default_factory=list, max_length=5)
+    key_concerns: list[str] = Field(default_factory=list, max_length=5)
+
+
+class ManagerPlan(_OpinionBase):
+    """Aggregate plan from `Manager.synthesize(...)` over the 3 analyst opinions.
+
+    `dissent` is True when the analysts disagree strongly enough that the
+    plan should be downstream-treated with extra caution (e.g. smaller
+    sizing, prefer LIMIT over MARKET). The flag is the LLM's judgement,
+    not a deterministic computation.
+    """
+
+    ticker: str = Field(..., min_length=1, max_length=12, pattern=r"^[A-Z0-9]+$")
+    recommendation: Recommendation
+    conviction: float = Field(..., ge=0.0, le=1.0)
+    size_hint_pct_nav: Decimal = Field(..., ge=Decimal("0"), le=Decimal("0.05"))
+    horizon_days: int = Field(..., ge=1, le=90)
+    key_thesis: str = Field(..., min_length=1, max_length=2000)
+    key_risks: list[str] = Field(default_factory=list, max_length=5)
+    dissent: bool = False

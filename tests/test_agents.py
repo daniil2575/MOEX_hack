@@ -13,6 +13,11 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 from src.agents import (
+    FundamentalAnalyst,
+    FundamentalOpinion,
+    FundamentalSnapshot,
+    Manager,
+    ManagerPlan,
     NewsAnalyst,
     NewsOpinion,
     TechnicalAnalyst,
@@ -261,3 +266,229 @@ class TestNewsAnalyst:
         assert "(2 items" in stub.last_prompt
         # Oldest item ("Sber Q1", minute=0) must be dropped
         assert "Sber Q1" not in stub.last_prompt
+
+
+# ────────────────────────────── FundamentalAnalyst ──────────────────────────────
+
+
+def _snapshot(ticker: str = "SBER") -> FundamentalSnapshot:
+    return FundamentalSnapshot(
+        ticker=ticker,
+        as_of=datetime(2026, 4, 28, tzinfo=UTC),
+        pe_ratio=Decimal("4.8"),
+        pb_ratio=Decimal("1.1"),
+        dividend_yield_pct=Decimal("11.2"),
+        roe_pct=Decimal("24.1"),
+        debt_to_equity=Decimal("0.8"),
+        revenue_growth_yoy_pct=Decimal("8.4"),
+        sector_pe_median=Decimal("5.5"),
+    )
+
+
+class TestFundamentalAnalyst:
+    def _opinion(self, ticker: str = "SBER") -> FundamentalOpinion:
+        return FundamentalOpinion(
+            agent_name="FundamentalAnalyst",
+            confidence=0.7,
+            rationale="P/E below sector, ROE strong, yield 11%",
+            produced_at=datetime(2026, 4, 28, tzinfo=UTC),
+            ticker=ticker,
+            rating="buy",
+            fair_value=Decimal("365"),
+            key_strengths=["high_roe", "below_sector_pe"],
+            key_concerns=["macro_rate_risk"],
+        )
+
+    def test_returns_opinion(self) -> None:
+        stub = StubLLM(self._opinion())
+        agent = FundamentalAnalyst(stub)
+        out = _run(agent.analyze(_snapshot()))
+        assert isinstance(out, FundamentalOpinion)
+        assert out.rating == "buy"
+        assert stub.calls == 1
+
+    def test_prompt_contains_ratios(self) -> None:
+        stub = StubLLM(self._opinion())
+        agent = FundamentalAnalyst(stub)
+        _run(agent.analyze(_snapshot()))
+        assert stub.last_prompt is not None
+        # Spot-check: ratio values must appear so the LLM can ground its rating
+        assert "4.8" in stub.last_prompt          # P/E
+        assert "11.2" in stub.last_prompt         # dividend yield
+        assert "24.1" in stub.last_prompt         # ROE
+        assert "5.5" in stub.last_prompt          # sector P/E median
+
+    def test_handles_missing_ratios(self) -> None:
+        stub = StubLLM(self._opinion())
+        agent = FundamentalAnalyst(stub)
+        snap = FundamentalSnapshot(
+            ticker="SBER",
+            as_of=datetime(2026, 4, 28, tzinfo=UTC),
+        )
+        _run(agent.analyze(snap))
+        assert stub.last_prompt is not None
+        assert "n/a" in stub.last_prompt
+
+
+class TestFundamentalContract:
+    def test_rejects_negative_dividend_yield(self) -> None:
+        with pytest.raises(ValidationError):
+            FundamentalSnapshot(
+                ticker="SBER",
+                as_of=datetime(2026, 4, 28, tzinfo=UTC),
+                dividend_yield_pct=Decimal("-1"),
+            )
+
+    def test_rejects_invalid_rating(self) -> None:
+        with pytest.raises(ValidationError):
+            FundamentalOpinion(
+                agent_name="x",
+                confidence=0.5,
+                rationale="x",
+                produced_at=datetime(2026, 4, 28, tzinfo=UTC),
+                ticker="SBER",
+                rating="WAT",  # type: ignore[arg-type]
+            )
+
+
+# ────────────────────────────── Manager ──────────────────────────────
+
+
+def _tech_op(ticker: str = "SBER") -> TechnicalOpinion:
+    return TechnicalOpinion(
+        agent_name="TechnicalAnalyst",
+        confidence=0.6,
+        rationale="trend up, MACD positive",
+        produced_at=datetime(2026, 4, 28, tzinfo=UTC),
+        ticker=ticker,
+        regime="bullish",
+        horizon_bars=60,
+        signals=["macd_bullish_cross"],
+    )
+
+
+def _news_op() -> NewsOpinion:
+    return NewsOpinion(
+        agent_name="NewsAnalyst",
+        confidence=0.55,
+        rationale="positive earnings backdrop, mild policy concerns",
+        produced_at=datetime(2026, 4, 28, tzinfo=UTC),
+        overall_sentiment="positive",
+        urgency="medium",
+        ticker_sentiments=[
+            TickerSentiment(ticker="SBER", sentiment="positive", impact="high"),
+            TickerSentiment(ticker="GAZP", sentiment="negative", impact="medium"),
+        ],
+        key_themes=["earnings_beats", "rate_path"],
+    )
+
+
+def _fund_op(ticker: str = "SBER") -> FundamentalOpinion:
+    return FundamentalOpinion(
+        agent_name="FundamentalAnalyst",
+        confidence=0.7,
+        rationale="cheap on P/E, dividend solid",
+        produced_at=datetime(2026, 4, 28, tzinfo=UTC),
+        ticker=ticker,
+        rating="buy",
+        fair_value=Decimal("365"),
+        key_strengths=["below_sector_pe"],
+        key_concerns=["regulatory"],
+    )
+
+
+class TestManager:
+    def _plan(self, ticker: str = "SBER") -> ManagerPlan:
+        return ManagerPlan(
+            agent_name="Manager",
+            confidence=0.65,
+            rationale="3 analysts agree on bullish",
+            produced_at=datetime(2026, 4, 28, tzinfo=UTC),
+            ticker=ticker,
+            recommendation="BUY",
+            conviction=0.7,
+            size_hint_pct_nav=Decimal("0.03"),
+            horizon_days=14,
+            key_thesis="cheap, growing, technically bid",
+            key_risks=["rate_volatility"],
+            dissent=False,
+        )
+
+    def test_synthesize_calls_llm_with_deep_temperature(self) -> None:
+        stub = StubLLM(self._plan())
+        mgr = Manager(stub, temperature=0.4)
+        out = _run(mgr.synthesize("SBER", _tech_op(), _news_op(), _fund_op()))
+        assert isinstance(out, ManagerPlan)
+        assert out.recommendation == "BUY"
+        assert stub.calls == 1
+
+    def test_prompt_includes_all_three_analyst_inputs(self) -> None:
+        stub = StubLLM(self._plan())
+        mgr = Manager(stub)
+        _run(mgr.synthesize("SBER", _tech_op(), _news_op(), _fund_op()))
+        assert stub.last_prompt is not None
+        for fragment in (
+            "TechnicalAnalyst",
+            "NewsAnalyst",
+            "FundamentalAnalyst",
+            "macd_bullish_cross",
+            "earnings_beats",
+            "below_sector_pe",
+        ):
+            assert fragment in stub.last_prompt, f"missing fragment: {fragment}"
+
+    def test_prompt_filters_news_to_target_ticker(self) -> None:
+        stub = StubLLM(self._plan())
+        mgr = Manager(stub)
+        # News op has both SBER and GAZP; we ask about SBER only.
+        _run(mgr.synthesize("SBER", _tech_op("SBER"), _news_op(), _fund_op("SBER")))
+        assert stub.last_prompt is not None
+        # The line that lists per-ticker sentiment for THIS ticker should mention SBER...
+        assert "SBER=positive/high" in stub.last_prompt
+        # ...but not surface GAZP's row in that same per-ticker list.
+        assert "GAZP=negative/medium" not in stub.last_prompt
+
+    def test_rejects_ticker_mismatch(self) -> None:
+        stub = StubLLM(self._plan())
+        mgr = Manager(stub)
+        with pytest.raises(ValueError, match="ticker mismatch"):
+            _run(
+                mgr.synthesize(
+                    "SBER",
+                    _tech_op("GAZP"),  # mismatched
+                    _news_op(),
+                    _fund_op("SBER"),
+                )
+            )
+
+
+class TestManagerPlanContract:
+    def test_size_hint_capped_at_5pct(self) -> None:
+        with pytest.raises(ValidationError):
+            ManagerPlan(
+                agent_name="Manager",
+                confidence=0.5,
+                rationale="x",
+                produced_at=datetime(2026, 4, 28, tzinfo=UTC),
+                ticker="SBER",
+                recommendation="BUY",
+                conviction=0.5,
+                size_hint_pct_nav=Decimal("0.06"),  # over the 5% cap
+                horizon_days=10,
+                key_thesis="x",
+            )
+
+    def test_rejects_invalid_recommendation(self) -> None:
+        with pytest.raises(ValidationError):
+            ManagerPlan(
+                agent_name="Manager",
+                confidence=0.5,
+                rationale="x",
+                produced_at=datetime(2026, 4, 28, tzinfo=UTC),
+                ticker="SBER",
+                recommendation="WAT",  # type: ignore[arg-type]
+                conviction=0.5,
+                size_hint_pct_nav=Decimal("0.02"),
+                horizon_days=10,
+                key_thesis="x",
+            )
