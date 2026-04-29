@@ -1,0 +1,93 @@
+groups:
+  - name: moex-bot-risk
+    interval: 30s
+    rules:
+      - alert: DrawdownWarning
+        expr: moex_bot_drawdown_pct < -0.03
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Portfolio drawdown crossed -3% (WARN tier)"
+          description: "DD-from-peak={{ $value | humanizePercentage }}; Risk Manager will block BUY orders."
+
+      - alert: DrawdownHalt
+        expr: moex_bot_drawdown_pct < -0.05
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Portfolio drawdown hit -5% HALT — all orders blocked"
+          description: "DD-from-peak={{ $value | humanizePercentage }}. Manual review required before resuming."
+
+      - alert: RiskRejectionRateHigh
+        expr: |
+          sum(rate(moex_bot_risk_verdicts_total{approved="false"}[5m]))
+          /
+          (sum(rate(moex_bot_risk_verdicts_total[5m])) + 1e-9)
+          > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Over 50% of risk verdicts rejected in last 5m"
+          description: "Strategy may be misaligned with risk limits — review Trader sizing."
+
+  - name: moex-bot-llm
+    interval: 30s
+    rules:
+      - alert: LLMLatencyHighP95
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le, agent)(rate(moex_bot_llm_call_seconds_bucket[5m]))
+          ) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.agent }} p95 LLM latency > 10s"
+          description: "OpenRouter slow path — consider switching agent to fast model snapshot."
+
+      - alert: LLMCostBurnHigh
+        expr: |
+          sum by (model)(rate(moex_bot_llm_cost_usd_total[1h]) * 3600) > 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.model }} cost > $5/h"
+          description: "LLM spend trending toward weekly cap. Review prompt sizes / caching."
+
+      - alert: LLMErrorRateHigh
+        expr: |
+          sum(rate(moex_bot_llm_errors_total[5m]))
+          /
+          (sum(rate(moex_bot_llm_calls_total[5m])) + 1e-9)
+          > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "LLM error rate > 5% in last 5m"
+          description: "Pydantic-parse or transient API failures. Check logs / fallback model status."
+
+  - name: moex-bot-data
+    interval: 30s
+    rules:
+      - alert: ISSDataStale
+        expr: time() - moex_bot_last_iss_fetch_timestamp_seconds > 300
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MOEX ISS data older than 5 minutes"
+          description: "Pipeline may be operating on stale features."
+
+      - alert: TelegramFixtureFallback
+        expr: moex_bot_news_source_active{source="fixtures"} == 1
+        for: 1m
+        labels:
+          severity: info
+        annotations:
+          summary: "News parser running on fixtures (no Telegram creds)"
+          description: "Expected during pre-hackathon prep; resolve when api_id/api_hash arrive."

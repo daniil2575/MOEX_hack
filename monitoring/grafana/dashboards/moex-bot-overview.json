@@ -1,0 +1,194 @@
+{
+  "uid": "moex-bot-overview",
+  "title": "moex-bot — overview",
+  "tags": ["moex-bot", "trading"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": { "list": [] },
+  "annotations": {
+    "list": [
+      {
+        "name": "risk_halts",
+        "datasource": "Prometheus",
+        "enable": true,
+        "expr": "changes(moex_bot_risk_verdicts_total{severity=\"HALT\"}[1m]) > 0",
+        "iconColor": "red",
+        "titleFormat": "RiskManager HALT"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "NAV",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": { "unit": "currencyRUB", "decimals": 0 }
+      },
+      "targets": [
+        { "expr": "moex_bot_portfolio_nav", "refId": "A" }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Daily PnL %",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": -0.03 },
+              { "color": "green", "value": 0 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        { "expr": "moex_bot_daily_pnl_pct", "refId": "A" }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "DD from peak",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": -0.03 },
+              { "color": "green", "value": -0.001 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        { "expr": "moex_bot_drawdown_pct", "refId": "A" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Open positions",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "datasource": "Prometheus",
+      "targets": [
+        { "expr": "moex_bot_open_positions_count", "refId": "A" }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Equity curve",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": { "unit": "currencyRUB" }
+      },
+      "targets": [
+        { "expr": "moex_bot_portfolio_nav", "refId": "A", "legendFormat": "NAV" }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Decisions / minute",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum by (action) (rate(moex_bot_decisions_total[1m]) * 60)",
+          "legendFormat": "{{action}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "LLM latency (p50/p95/p99)",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "datasource": "Prometheus",
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le, agent) (rate(moex_bot_llm_call_seconds_bucket[5m])))",
+          "legendFormat": "{{agent}} p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, agent) (rate(moex_bot_llm_call_seconds_bucket[5m])))",
+          "legendFormat": "{{agent}} p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le, agent) (rate(moex_bot_llm_call_seconds_bucket[5m])))",
+          "legendFormat": "{{agent}} p99",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "LLM cost / hour (USD)",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "datasource": "Prometheus",
+      "fieldConfig": { "defaults": { "unit": "currencyUSD" } },
+      "targets": [
+        {
+          "expr": "sum by (model) (rate(moex_bot_llm_cost_usd_total[5m]) * 3600)",
+          "legendFormat": "{{model}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "type": "timeseries",
+      "title": "Risk verdicts by rule",
+      "gridPos": { "x": 0, "y": 20, "w": 12, "h": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum by (rule) (rate(moex_bot_risk_verdicts_total{approved=\"false\"}[5m]) * 60)",
+          "legendFormat": "rejected: {{rule}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum (rate(moex_bot_risk_verdicts_total{approved=\"true\"}[5m]) * 60)",
+          "legendFormat": "approved",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "type": "timeseries",
+      "title": "Order fills / status",
+      "gridPos": { "x": 12, "y": 20, "w": 12, "h": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum by (status) (rate(moex_bot_orders_total[5m]) * 60)",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}
