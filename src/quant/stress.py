@@ -1,16 +1,19 @@
-"""Historical stress-testing scaffolding (Aladdin-inspired).
+"""Historical stress-testing (Aladdin-inspired).
 
-Replays a portfolio's exposures against a fixed set of crisis scenarios. Output
-is a dict of `scenario_name -> projected_pnl_pct`. Used to flag fragile
-allocations before the Risk Manager's daily VaR check kicks in.
+Replays a portfolio's exposures against a fixed set of crisis scenarios.
+Output is a Decimal projected P&L (% of NAV) per scenario. Used by Risk
+Manager v2 to flag fragile allocations alongside the daily VaR check.
 
-Scenarios are defined as per-ticker daily-return paths over the crisis window.
-The skeleton ships with empty paths — populated from MOEX historical data on
-Day 5+ via `data/loaders` (out of scope for the red phase).
+Each scenario is a per-ticker daily-return path over the crisis window.
+On `stress_test_portfolio()`:
+    pnl_pct = sum over positions of (position_weight * compounded_return_for_ticker)
+where compounded_return = product(1 + r_t for r_t in scenario.returns[ticker]) - 1.
 
-NOTE: All four scenarios are intentionally stubbed (`returns={}`,
-`stress_test_portfolio` raises NotImplementedError). Green-phase work fills in
-the historical paths and the projection math.
+Tickers without scenario data contribute zero (we don't know what they
+did during 2008, so we don't punish or reward them — explicit and audit-friendly).
+
+Skeleton scenarios ship with `returns={}` (no historical paths populated yet).
+Day-of-walk-forward (Day 14) populates them from MOEX historical data.
 """
 
 from __future__ import annotations
@@ -65,12 +68,28 @@ def stress_test_portfolio(
     portfolio: Portfolio,
     scenario: StressScenario,
 ) -> Decimal:
-    """Project portfolio P&L (% NAV) under a historical scenario.
+    """Project portfolio P&L (fraction of NAV) under a historical scenario.
 
-    Returns the cumulative P&L over the scenario window, computed as the
-    weighted sum of per-ticker compounded returns times position weight.
-
-    Raises:
-        NotImplementedError: green-phase work — see Day 6 of solo_plan.md.
+    Tickers missing from `scenario.returns` contribute zero. NAV ≤ 0 raises
+    (we never want a stress test of a degenerate portfolio).
     """
-    raise NotImplementedError("stress_test_portfolio is a red-phase stub")
+    if portfolio.nav <= 0:
+        raise ValueError("portfolio.nav must be positive for stress test")
+
+    total: Decimal = Decimal("0")
+    for pos in portfolio.positions:
+        path = scenario.returns.get(pos.ticker)
+        if not path:
+            continue
+        weight = pos.market_value / portfolio.nav
+        compounded = _compound(path)
+        total += weight * compounded
+    return total
+
+
+def _compound(returns: list[Decimal]) -> Decimal:
+    """Geometric compounding: product(1 + r) - 1."""
+    result = Decimal("1")
+    for r in returns:
+        result *= Decimal("1") + r
+    return result - Decimal("1")
