@@ -15,6 +15,7 @@ from src.agents.fundamental import FundamentalAnalyst
 from src.agents.manager import Manager
 from src.agents.news import NewsAnalyst
 from src.agents.technical import TechnicalAnalyst
+from src.agents.trader import Trader
 
 __all__ = [
     "FundamentalAnalyst",
@@ -32,4 +33,5 @@ __all__ = [
     "TechnicalAnalyst",
     "TechnicalOpinion",
     "TickerSentiment",
+    "Trader",
 ]

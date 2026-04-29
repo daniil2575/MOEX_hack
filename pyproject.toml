@@ -20,6 +20,7 @@ asyncpg = "^0.29"
 pandas = "^2.2"
 numpy = "^1.26"
 telethon = "^1.36"
+langgraph = "^0.2"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.4"
