@@ -36,7 +36,9 @@ class BrokerOrder(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    client_order_id: str = Field(default_factory=lambda: uuid.uuid4().hex, max_length=64)
+    # Dashed UUID format (e.g. "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx") — T-Bank
+    # rejects hex-only UUIDs at the API boundary, so we standardise here.
+    client_order_id: str = Field(default_factory=lambda: str(uuid.uuid4()), max_length=64)
     ticker: str = Field(..., min_length=1, max_length=12, pattern=r"^[A-Z0-9]+$")
     action: Action
     qty: Decimal = Field(..., gt=Decimal("0"))

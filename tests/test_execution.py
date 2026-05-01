@@ -198,19 +198,57 @@ class TestTInvestSandboxAdapter:
         with pytest.raises(ValueError):
             TInvestSandboxAdapter(token="", account_id="acct-1")
 
-    def test_methods_raise_not_implemented(self) -> None:
-        adapter = TInvestSandboxAdapter(token="dummy", account_id="acct-1")
-        order = BrokerOrder(
-            ticker="SBER", action="BUY", qty=Decimal("1"), urgency="MARKET"
+    def test_rejects_empty_account_id(self) -> None:
+        with pytest.raises(ValueError):
+            TInvestSandboxAdapter(token="dummy", account_id="")
+
+    def test_place_order_rejects_unknown_ticker(self) -> None:
+        # No FIGI mapping → REJECTED locally without hitting the network.
+        adapter = TInvestSandboxAdapter(
+            token="dummy", account_id="acct-1", figi_resolver={}
         )
-        with pytest.raises(NotImplementedError):
-            _run(adapter.place_order(order))
-        with pytest.raises(NotImplementedError):
-            _run(adapter.cancel_order("x"))
-        with pytest.raises(NotImplementedError):
-            _run(adapter.get_state("x"))
-        with pytest.raises(NotImplementedError):
-            _run(adapter.drain_fills("x"))
+        order = BrokerOrder(
+            ticker="UNKNOWN", action="BUY", qty=Decimal("1"), urgency="MARKET"
+        )
+        state = _run(adapter.place_order(order))
+        assert state.status == "REJECTED"
+        assert state.rejection_reason and "UNKNOWN" in state.rejection_reason
+        assert state.broker_order_id is None
+
+    def test_place_limit_order_requires_limit_price(self) -> None:
+        adapter = TInvestSandboxAdapter(
+            token="dummy",
+            account_id="acct-1",
+            figi_resolver={"SBER": "BBG004730N88"},
+        )
+        order = BrokerOrder(
+            ticker="SBER", action="BUY", qty=Decimal("1"), urgency="LIMIT"
+        )
+        # No limit_price → adapter rejects locally.
+        state = _run(adapter.place_order(order))
+        assert state.status == "REJECTED"
+        assert state.rejection_reason and "limit_price" in state.rejection_reason
+
+    def test_get_state_unknown_order_returns_rejected(self) -> None:
+        adapter = TInvestSandboxAdapter(
+            token="dummy", account_id="acct-1", figi_resolver={}
+        )
+        state = _run(adapter.get_state("never-submitted"))
+        assert state.status == "REJECTED"
+
+    def test_drain_fills_unknown_order_returns_empty(self) -> None:
+        adapter = TInvestSandboxAdapter(
+            token="dummy", account_id="acct-1", figi_resolver={}
+        )
+        fills = _run(adapter.drain_fills("never-submitted"))
+        assert fills == []
+
+    def test_cancel_unknown_order_returns_rejected(self) -> None:
+        adapter = TInvestSandboxAdapter(
+            token="dummy", account_id="acct-1", figi_resolver={}
+        )
+        state = _run(adapter.cancel_order("never-submitted"))
+        assert state.status == "REJECTED"
 
 
 # ────────────────────────────── Light invariants ──────────────────────────────
